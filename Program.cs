@@ -14,7 +14,7 @@ namespace ShuffleSlam
         private static string[] names = new string[] { "joe", "mike", "ana", "sal", "jeff", "todd" };
         static void Main(string[] args)
         {
-            var numberOfGames = 200;
+            var numberOfGames = 100;
             var maxPlayers = 6;
             var rand = new Random();
 
@@ -35,20 +35,18 @@ namespace ShuffleSlam
                                 {
                                     Seed = j * 6 + i * 20,
                                     RoomIndex = i,
-                                    State = (j == 0 ? (ThreadState.CreateGame) : (j == numOfPlayers - 1 ? ThreadState.StartGame : ThreadState.JoinGame)),
+                                    State = (j == 0 ? (ThreadState.CreateGame) : ThreadState.JoinGame),
                                     UserName = names[j]
                                 });
+                    Thread.Sleep(rand.Next(300, 750));
 
-                    gamesOpen++;
-                    Console.WriteLine(string.Format("{0} Games Opened", gamesOpen));
-                    //Console.ReadLine();
-                    Thread.Sleep(rand.Next(150, 450));
 
                 }
-                Thread.Sleep(rand.Next(400 , 550 ));
-            }
+                Thread.Sleep(rand.Next(1400, 1550));
+                gamesOpen++;
 
-            Console.WriteLine(string.Format("{0} Games Opened", gamesOpen));
+                Console.WriteLine(string.Format("{0} Games Opened", gamesOpen));
+            }
 
             Console.ReadLine();
         }
@@ -58,6 +56,22 @@ namespace ShuffleSlam
             var options = (ThreadParams)parameters;
             Random rand = new Random(options.Seed);
 
+            if (options.State == ThreadState.CreateGame)
+            {
+                Thread.Sleep(rand.Next(1000, 25000));
+            }
+
+            if (options.State == ThreadState.JoinGame)
+            {
+                Thread.Sleep(rand.Next(3000, 45000));
+            }
+
+
+
+
+            Console.WriteLine(string.Format("Begin {0}", options.State));
+
+
             var socket = new Client("http://50.116.22.241:81/"); // url to nodejs 
             socket.Opened += SocketOpened;
             socket.Message += SocketMessage;
@@ -65,14 +79,14 @@ namespace ShuffleSlam
             socket.Error += SocketError;
 
             string roomID = null;
-            // register for 'connect' event with io server
-
+            // register for 'connect' event with io server 
 
             socket.On("Area.Game.AskQuestion", (fn) =>
             {
-                Thread.Sleep(rand.Next(400, 2000));
+                Thread.Sleep(rand.Next(400, 2500));
                 Console.WriteLine("asked: " + options.RoomIndex + "  " + options.UserName);
-                socket.Emit("Area.Game.AnswerQuestion", new { answer = 1, roomID = options.RoomIndex });
+                if (socket == null) return;
+                socket.Emit("Area.Game.AnswerQuestion", new { answer = 1, roomID });
             });
 
 
@@ -93,6 +107,46 @@ namespace ShuffleSlam
                 socket = null;
 
             });
+
+            socket.On("Area.Game.RoomInfos", (data) =>
+                                                 {
+
+
+                                                     foreach (var room in data.Json.Args[0].Children())
+                                                     {
+                                                         var plys = 0;
+                                                         foreach (var child in room["players"].Children())
+                                                         {
+                                                             plys++;
+                                                         }
+                                                         if (room["started"].Value)
+                                                         { 
+                                                             continue;
+                                                         }
+
+                                                         switch (options.State)
+                                                         {
+                                                             case ThreadState.JoinGame:
+                                                                 roomID = room["roomID"].Value;
+                                                                 socket.Emit("Area.Game.Join", new { user = new { name = options.UserName }, roomID = room["roomID"].Value });
+                                                                 Console.WriteLine(options.RoomIndex+" Joined");
+                                                                 if (plys + 1 >= room["maxUsers"].Value)
+                                                                 {
+                                                                     Thread.Sleep(rand.Next(750, 1250));
+                                                                     socket.Emit("Area.Game.Start", new { roomID = room["roomID"].Value });
+                                                                     Console.WriteLine(options.RoomIndex + " Started");
+                                                                     return;
+                                                                 }
+                                                                 return;
+                                                                 break;
+                                                             default:
+                                                                 throw new ArgumentOutOfRangeException();
+                                                         }
+                                                     }
+
+                                                     Thread.Sleep(rand.Next(1000, 2000));
+                                                     socket.Emit("Area.Game.GetGames", true);
+                                                 });
             socket.On("Area.Game.Started", (fn) =>
             {
 
@@ -102,30 +156,28 @@ namespace ShuffleSlam
             socket.Connect();
             switch (options.State)
             {
-                case ThreadState.StartGame:
-                    socket.Emit("Area.Game.Join", new { user = new { name = options.UserName }, roomID = options.RoomIndex });
-                    socket.Emit("Area.Game.Start", new { user = new { name = options.UserName }, roomID = options.RoomIndex });
-                    break;
                 case ThreadState.JoinGame:
-                    socket.Emit("Area.Game.Join", new { user = new { name = options.UserName }, roomID = options.RoomIndex });
+                    socket.Emit("Area.Game.GetGames", true);
                     break;
                 case ThreadState.CreateGame:
+                    Console.WriteLine(options.RoomIndex + " Created");
+
                     socket.Emit("Area.Game.Create", new { user = new { name = options.UserName } });
 
                     break;
                 default:
                     throw new ArgumentOutOfRangeException();
             }
+
         }
 
         private static void SocketError(object sender, ErrorEventArgs e)
         {
-
+            Console.WriteLine(e.Message+"   "+ e.Exception.ToString());
         }
 
         private static void SocketConnectionClosed(object sender, EventArgs e)
         {
-
 
         }
 
@@ -150,7 +202,7 @@ namespace ShuffleSlam
     }
     public enum ThreadState
     {
-        StartGame, JoinGame, CreateGame
+        JoinGame, CreateGame
     }
 
     internal class ShuffleGame
