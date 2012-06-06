@@ -14,7 +14,7 @@ namespace ShuffleSlam
         private static string[] names = new string[] { "joe", "mike", "ana", "sal", "jeff", "todd" };
         static void Main(string[] args)
         {
-            var numberOfGames = 100;
+            var numberOfGames = 160;
             var maxPlayers = 6;
             var rand = new Random();
 
@@ -38,11 +38,11 @@ namespace ShuffleSlam
                                     State = (j == 0 ? (ThreadState.CreateGame) : ThreadState.JoinGame),
                                     UserName = names[j]
                                 });
-                    Thread.Sleep(rand.Next(300, 750));
+                    Thread.Sleep(rand.Next(300, 400));
 
 
                 }
-                Thread.Sleep(rand.Next(1400, 1550));
+                Thread.Sleep(rand.Next(900, 1200));
                 gamesOpen++;
 
                 Console.WriteLine(string.Format("{0} Games Opened", gamesOpen));
@@ -58,12 +58,12 @@ namespace ShuffleSlam
 
             if (options.State == ThreadState.CreateGame)
             {
-                Thread.Sleep(rand.Next(1000, 25000));
+                Thread.Sleep(rand.Next(1000, 15000));
             }
 
             if (options.State == ThreadState.JoinGame)
             {
-                Thread.Sleep(rand.Next(3000, 45000));
+                Thread.Sleep(rand.Next(3000, 25000));
             }
 
 
@@ -83,7 +83,7 @@ namespace ShuffleSlam
 
             socket.On("Area.Game.AskQuestion", (fn) =>
             {
-                Thread.Sleep(rand.Next(400, 2500));
+                Thread.Sleep(rand.Next(400, 1800));
                 Console.WriteLine("asked: " + options.RoomIndex + "  " + options.UserName);
                 if (socket == null) return;
                 socket.Emit("Area.Game.AnswerQuestion", new { answer = 1, roomID });
@@ -106,8 +106,7 @@ namespace ShuffleSlam
                 socket.Close();
                 socket = null;
 
-            });
-
+            }); 
             socket.On("Area.Game.RoomInfos", (data) =>
                                                  {
 
@@ -144,7 +143,7 @@ namespace ShuffleSlam
                                                          }
                                                      }
 
-                                                     Thread.Sleep(rand.Next(1000, 2000));
+                                                     Thread.Sleep(rand.Next(600, 900));
                                                      socket.Emit("Area.Game.GetGames", true);
                                                  });
             socket.On("Area.Game.Started", (fn) =>
