@@ -14,7 +14,7 @@ namespace ShuffleSlam
         private static string[] names = new string[] { "joe", "mike", "ana", "sal", "jeff", "todd" };
         static void Main(string[] args)
         {
-            var numberOfGames = 160;
+            var numberOfGames = 20;
             var maxPlayers = 6;
             var rand = new Random();
 
@@ -48,7 +48,6 @@ namespace ShuffleSlam
                 Console.WriteLine(string.Format("{0} Games Opened", gamesOpen));
             }
 
-            Console.ReadLine();
         }
 
         private static void Target(object parameters)
@@ -58,12 +57,12 @@ namespace ShuffleSlam
 
             if (options.State == ThreadState.CreateGame)
             {
-                Thread.Sleep(rand.Next(1000, 15000));
+                Thread.Sleep(rand.Next(0, 7500));
             }
 
             if (options.State == ThreadState.JoinGame)
             {
-                Thread.Sleep(rand.Next(3000, 25000));
+                Thread.Sleep(rand.Next(1500, 15000));
             }
 
 
@@ -80,10 +79,10 @@ namespace ShuffleSlam
 
             string roomID = null;
             // register for 'connect' event with io server 
-
+             
             socket.On("Area.Game.AskQuestion", (fn) =>
             {
-                Thread.Sleep(rand.Next(400, 1800));
+                Thread.Sleep(rand.Next(400, 1200));
                 Console.WriteLine("asked: " + options.RoomIndex + "  " + options.UserName);
                 if (socket == null) return;
                 socket.Emit("Area.Game.AnswerQuestion", new { answer = 1, roomID });
