@@ -1,11 +1,14 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Net;
 using System.Net.Sockets;
 using System.Text;
 using System.Threading;
+using System.Threading.Tasks;
 using SocketIOClient;
+using ErrorEventArgs = SocketIOClient.ErrorEventArgs;
 
 namespace ShuffleSlam
 {
@@ -14,43 +17,42 @@ namespace ShuffleSlam
         private static string[] names = new string[] { "joe", "mike", "ana", "sal", "jeff", "todd" };
         static void Main(string[] args)
         {
-            var numberOfGames = 160;
             var maxPlayers = 6;
             var rand = new Random();
 
-            int gamesOpen = 0;
-            for (int i = 0; i < numberOfGames; i++)
+
+
+
+
+             
+
+            while (true) 
             {
+
                 var numOfPlayers = rand.Next(maxPlayers / 2, maxPlayers);
+                Task[] tasks = new Task[numOfPlayers];
                 for (int j = 0; j < numOfPlayers; j++)
                 {
-                    /*ThreadPool.QueueUserWorkItem(Target, new
-                                                             {
-                                                                 ind = j,
-                                                                 log = (Action<string>) (logs)
-                                                             });
-                    */
-                    Thread t = new Thread(Target);
-                    t.Start(new ThreadParams()
-                                {
-                                    Seed = j * 6 + i * 20,
-                                    RoomIndex = i,
-                                    State = (j == 0 ? (ThreadState.CreateGame) : ThreadState.JoinGame),
-                                    UserName = names[j]
-                                });
-                    Thread.Sleep(rand.Next(300, 400));
+                    int j1 = j;
 
-
+                    tasks[j] = Task.Factory.StartNew(() => Target(new ThreadParams()
+                                                                      {
+                                                                          MaxUsers=numOfPlayers,
+                                                                          Seed = j1 * 6,
+                                                                          State = (j1 == 0 ? (ThreadState.CreateGame) : ThreadState.JoinGame),
+                                                                          UserName = names[j1]
+                                                                      }));
                 }
-                Thread.Sleep(rand.Next(900, 1200));
-                gamesOpen++;
+                while (tasks.Any(t => !t.IsCompleted)) { } //spin wait
 
-                Console.WriteLine(string.Format("{0} Games Opened", gamesOpen));
-            }
 
-            Console.ReadLine();
+                 
+
+        }
+             
         }
 
+        public static int foos = 0;
         private static void Target(object parameters)
         {
             var options = (ThreadParams)parameters;
@@ -58,60 +60,85 @@ namespace ShuffleSlam
 
             if (options.State == ThreadState.CreateGame)
             {
-                Thread.Sleep(rand.Next(1000, 15000));
+                Thread.Sleep(rand.Next(0, 500));
             }
 
             if (options.State == ThreadState.JoinGame)
             {
-                Thread.Sleep(rand.Next(3000, 25000));
+                Thread.Sleep(rand.Next(1500, 2500));
             }
 
-
-
-
             Console.WriteLine(string.Format("Begin {0}", options.State));
+            string ip=null;
 
+            WebClient client = new WebClient();
+            ip = client.DownloadString("http://50.116.22.241:8844");
+           
 
-            var socket = new Client("http://50.116.22.241:81/"); // url to nodejs 
+            var socket = new Client(ip); // url to nodejs 
             socket.Opened += SocketOpened;
             socket.Message += SocketMessage;
             socket.SocketConnectionClosed += SocketConnectionClosed;
             socket.Error += SocketError;
-
+            string gameServer=null;
             string roomID = null;
             // register for 'connect' event with io server 
 
-            socket.On("Area.Game.AskQuestion", (fn) =>
+            Dictionary<string, Action<dynamic>> dct = new Dictionary<string, Action<dynamic>>();
+
+
+
+            socket.On("Client.Message", (fn) =>
+                                            {
+                                                var cn = fn.Json.Args[0].channel.Value;
+                                                var cnt = fn.Json.Args[0].content;
+
+                                                dct[cn](cnt);
+
+                                            });
+
+
+            
+
+            dct.Add("Area.Game.AskQuestion", (fn) =>
             {
-                Thread.Sleep(rand.Next(400, 1800));
-                Console.WriteLine("asked: " + options.RoomIndex + "  " + options.UserName);
+                Thread.Sleep(rand.Next(300, 800));
+                Console.WriteLine("asked: " + "  " + options.UserName);
                 if (socket == null) return;
-                socket.Emit("Area.Game.AnswerQuestion", new { answer = 1, roomID });
+                try
+                {
+                    emit(socket, "Area.Game.AnswerQuestion", new { answer = 1, roomID }, gameServer);
+                }catch(Exception)
+                {
+                    Console.WriteLine("failed for some reason");
+                }
             });
 
 
-            socket.On("Area.Game.UpdateState", (fn) =>
+            dct.Add("Area.Game.UpdateState", (fn) =>
             {
 
             });
 
-            socket.On("Area.Game.RoomInfo", (fn) =>
+            dct.Add("Area.Game.RoomInfo", (fn) =>
                                                 {
-                                                    roomID = fn.Json.Args[0].roomID.ToString();
-
+                                                    roomID = fn.roomID.ToString();
+                                                    gameServer = fn.gameServer;
                                                 });
 
-            socket.On("Area.Game.GameOver", (fn) =>
-            {
-                socket.Close();
-                socket = null;
+            bool gameover = false;
+            dct.Add("Area.Game.GameOver", (fn) =>
+                                              {
+                                                  socket.Close();
+                                                  socket.Dispose();
+                                                  gameover = true;
 
-            }); 
-            socket.On("Area.Game.RoomInfos", (data) =>
+                                              }); 
+            dct.Add("Area.Game.RoomInfos", (data) =>
                                                  {
 
 
-                                                     foreach (var room in data.Json.Args[0].Children())
+                                                     foreach (var room in data.Children())
                                                      {
                                                          var plys = 0;
                                                          foreach (var child in room["players"].Children())
@@ -122,18 +149,17 @@ namespace ShuffleSlam
                                                          { 
                                                              continue;
                                                          }
-
+                                                         gameServer = room["gameServer"].Value;
                                                          switch (options.State)
                                                          {
                                                              case ThreadState.JoinGame:
                                                                  roomID = room["roomID"].Value;
-                                                                 socket.Emit("Area.Game.Join", new { user = new { name = options.UserName }, roomID = room["roomID"].Value });
-                                                                 Console.WriteLine(options.RoomIndex+" Joined");
-                                                                 if (plys + 1 >= room["maxUsers"].Value)
+                                                                 emit(socket, "Area.Game.Join", new { user = new { userName = options.UserName }, roomID = room["roomID"].Value }, gameServer);
+
+                                                                 if (plys + 1 >= options.MaxUsers)
                                                                  {
                                                                      Thread.Sleep(rand.Next(750, 1250));
-                                                                     socket.Emit("Area.Game.Start", new { roomID = room["roomID"].Value });
-                                                                     Console.WriteLine(options.RoomIndex + " Started");
+                                                                     emit(socket, "Area.Game.Start", new { roomID = room["roomID"].Value }, gameServer);
                                                                      return;
                                                                  }
                                                                  return;
@@ -144,29 +170,41 @@ namespace ShuffleSlam
                                                      }
 
                                                      Thread.Sleep(rand.Next(600, 900));
-                                                     socket.Emit("Area.Game.GetGames", true);
+                                                     emit(socket, "Area.Game.GetGames", true, gameServer);
                                                  });
-            socket.On("Area.Game.Started", (fn) =>
+            dct.Add("Area.Game.Started", (fn) =>
             {
 
             });
 
             // make the socket.io connection
             socket.Connect();
+
+            socket.Emit("Gateway.Login", new {userName = options.UserName + " " + Guid.NewGuid().ToString()});
+
             switch (options.State)
             {
                 case ThreadState.JoinGame:
-                    socket.Emit("Area.Game.GetGames", true);
+                    emit(socket, "Area.Game.GetGames", true, gameServer);
                     break;
                 case ThreadState.CreateGame:
-                    Console.WriteLine(options.RoomIndex + " Created");
+                    Console.WriteLine( "Created");
 
-                    socket.Emit("Area.Game.Create", new { user = new { name = options.UserName } });
+                    emit(socket, "Area.Game.Create", new { gameName = "Sevens", name = "game " + Guid.NewGuid().ToString()  , user = new { name = options.UserName } }, gameServer);
 
                     break;
                 default:
                     throw new ArgumentOutOfRangeException();
             }
+            while (!gameover)
+            {
+                Thread.Sleep(1000);
+            }
+
+        }
+        private static void emit(Client cli, string chan, object obj, string gameServer)
+        {
+            cli.Emit("Gateway.Message", new { channel = chan, content = obj, gameServer=gameServer });
 
         }
 
@@ -193,11 +231,11 @@ namespace ShuffleSlam
     }
     public class ThreadParams
     {
+        public int MaxUsers { get; set; }
         public int Seed { get; set; }
         public ThreadState State { get; set; }
         public string UserName { get; set; }
-
-        public int RoomIndex { get; set; }
+         
     }
     public enum ThreadState
     {
